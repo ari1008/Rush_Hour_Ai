@@ -1,0 +1,20 @@
+{
+  "map": {
+    "height": 5,
+    "width": 5,
+    "finish": {
+      "x": 4,
+      "y": 2
+    }
+  },
+  "cars": [
+    {
+      "x": 2,
+      "y": 2,
+      "direction": "V",
+      "color": "red",
+      "x1": 3,
+      "y1": 2
+    }
+  ]
+}
