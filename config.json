@@ -1,0 +1,17 @@
+{
+    "cars": [
+        {"x": 1, "y": 3, "width": 2, "height": 1, "color": "red"},
+        {"x": 3, "y": 4, "width": 1, "height": 2, "color": "red"},
+        {"x": 5, "y": 2, "width": 1, "height": 3, "color": "red"}
+    ],
+    "main_car": {
+        "x": 1,
+        "y": 4,
+        "width": 2,
+        "height": 1
+    },
+    "exit": {
+        "x": 7,
+        "y": 4
+    }
+}
