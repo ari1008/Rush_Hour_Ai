@@ -6,165 +6,287 @@ SPRITE_SIZE = 64
 
 # Actions
 MOVES = {
-    'W': (0, -1),  # Up (diminue y)
-    'S': (0, 1),   # Down (augmente y)
-    'A': (-1, 0),  # Left (diminue x)
-    'D': (1, 0)    # Right (augmente x)
+    'UP': (0, -1),  # Haut : diminue y
+    'DOWN': (0, 1),  # Bas : augmente y
+    'LEFT': (-1, 0),  # Gauche : diminue x
+    'RIGHT': (1, 0)  # Droite : augmente x
 }
 
+# Codes des touches directionnelles (par exemple pour Pygame ou Arcade)
 MOVES_NUMBER = {
-    65362: 'W',
-    65364: 'S',
-    65361: 'A',
-    65363: 'D'
+    65364: 'UP',  # Flèche haut
+    65362: 'DOWN',  # Flèche bas
+    65361: 'LEFT',  # Flèche gauche
+    65363: 'RIGHT'  # Flèche droite
 }
 
+# Axes associés aux directions (Horizontal ou Vertical)
+MOVEMENT_AXES = {
+    'UP': 'V',  # Haut = axe vertical
+    'DOWN': 'V',  # Bas = axe vertical
+    'LEFT': 'H',  # Gauche = axe horizontal
+    'RIGHT': 'H'  # Droite = axe horizontal
+}
+
+SCREEN_WIDTH = 700
+SCREEN_HEIGHT = 700
+SCREEN_TITLE = "Rush Hour"
+TILE_SIZE = 80
+PARKING_OFFSET = 70
+
+
+class Point:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+
+
+def get_color_enum(color_name):
+    try:
+        return arcade.color.__dict__[color_name.upper()]
+    except KeyError:
+        raise ValueError(f"Color '{color_name}' not found in arcade.color")
 
 
 class Car:
-    def __init__(self, car_data):
-        self.x = car_data["x"]
-        self.y = car_data["y"]
-        self.direction = car_data["direction"]
-        self.color = car_data["color"]
-        self.x1 = car_data["x1"]
-        self.y1 = car_data["y1"]
-        self.letter = car_data["direction"]
 
-    def move(self, action, parking_lot):
-        dx, dy = MOVES.get(action, (0, 0))
-        if self.direction == 'V':
-            new_y = self.y + dy
-            new_y1 = self.y1 + dy
-            if 0 <= new_y < parking_lot.height and 0 <= new_y1 < parking_lot.height:
-                # Vérifier les collisions
-                blocking_car = any(
-                    parking_lot.find_car(self.x, y)
-                    for y in range(min(new_y, new_y1), max(new_y, new_y1) + 1)
-                    if parking_lot.find_car(self.x, y) is not self
-                )
-                if not blocking_car:
-                    self.y = new_y
-                    self.y1 = new_y1
-
-        elif self.direction == 'H':
-            new_x = self.x + dx
-            new_x1 = self.x1 + dx
-            # Vérifier les limites du parking
-            if 0 <= new_x < parking_lot.width and 0 <= new_x1 < parking_lot.width:
-                # Vérifier les collisions
-                blocking_car = any(
-                    parking_lot.find_car(x, self.y)
-                    for x in range(min(new_x, new_x1), max(new_x, new_x1) + 1)
-                    if parking_lot.find_car(x, self.y) is not self
-                )
-                if not blocking_car:
-                    self.x = new_x
-                    self.x1 = new_x1
+    def __init__(self, color, is_main=False, direction="V", points=[]):
+        self.color: arcade.color = get_color_enum(color)
+        self.direction = direction
+        self.is_main = is_main
+        self.points = points
 
 
-class ParkingLot:
-    def __init__(self, layout, cars_data):
-        self.height = int(layout["height"])
-        self.width = int(layout["width"])
-        self.finish = (int(layout["finish"]["x"]), int(layout["finish"]["y"]))
-        self.cars = [Car(car) for car in cars_data]
+
+class Parking:
+    def __init__(self, cols, rows, exit_point, cars=[]):
+        self.cols = cols
+        self.rows = rows
+        self.exit_point = exit_point
+        self.cars = cars
+
+    def get_car_positions(self):
+        car_positions = []
+        for car in self.cars:
+            for point in car.points:
+                car_positions.append(PositionCar(car, point.x, point.y))
+        return car_positions
 
     def find_car(self, x, y):
-        return next((car for car in self.cars if car.x <= x <= car.x1 and car.y <= y <= car.y1), None)
+        for car in self.cars:
+            for point in car.points:
+                if point.x == x and point.y == y:
+                    return car
+        return None
 
-    def update(self, action, car_input: Car):
-        car = next((c for c in self.cars if c.x == car_input.x and c.y == car_input.y), None)
-        if car:
-            car.move(action, self)
+    def you_win(self):
+        for car in self.cars:
+            if car.is_main:
+                for point in car.points:
+                    # Vérifiez si la voiture principale atteint la sortie
+                    if (point.x == self.exit_point.x and point.y == self.exit_point.y) or \
+                            (point.x == self.exit_point.x and point.y + 1 == self.exit_point.y) or \
+                            (point.x == self.exit_point.x and point.y - 1 == self.exit_point.y) or \
+                            (point.x + 1 == self.exit_point.x and point.y == self.exit_point.y) or \
+                            (point.x - 1 == self.exit_point.x and point.y == self.exit_point.y):
+                        return True
+        return False
+
+    def move_car(self, car, move_number):
+        direction = MOVES_NUMBER[move_number]
+        move = MOVES[direction]
+        if car.direction != MOVEMENT_AXES[direction]:
+            print("Mouvement non autorisé !")
+            arcade.color.AERO_BLUE
+            return
+
+        # Vérification des limites du parking
+        for point in car.points:
+            new_x = point.x + move[0]
+            new_y = point.y + move[1]
+            if not (0 <= new_x < self.cols and 0 <= new_y < self.rows):
+                print("Mouvement hors des limites !")
+                return
+
+            # Vérifiez les collisions avec d'autres voitures
+            if self.find_car(new_x, new_y) and self.find_car(new_x, new_y) != car:
+                print("Collision détectée !")
+                return
+
+        # Mise à jour des positions si aucune collision
+        for point in car.points:
+            point.x += move[0]
+            point.y += move[1]
+        print(f"Car {car.color} moved {direction}")
+
+
+class PositionCar:
+    def __init__(self, car, x, y):
+        self.car = car
+        self.x = x
+        self.y = y
 
 
 class Environment:
-    def __init__(self, file_name):
-        with open(file_name, 'r') as f:
-            config = json.load(f)
-        self.parking_lot = ParkingLot(config['map'], config['cars'])
+    def __init__(self, config_file):
+        self.config = None
+        self.parking = None
+        self.load_config(config_file)
 
+    def load_config(self, config_file):
+        with open(config_file, 'r') as f:
+            self.config = json.load(f)
 
+    def create_parking(self):
+        parking = Parking(
+            self.config["map"]["height"],
+            self.config["map"]["width"],
+            Point(self.config["exit"]["x"], self.config["exit"]["y"]),
+            self.create_cars()
+        )
+        return parking
 
+    def create_cars(self):
+        cars = [Car("red", True, direction=self.config["main_car"]["direction"],points=[Point(p["x"], p["y"]) for p in self.config["main_car"]["case"]])]
+        for car in self.config["cars"]:
+            new_car = Car(
+                color=car["color"],
+                is_main=False,
+                direction=car["direction"],
+                points=[Point(p["x"], p["y"]) for p in car["case"]]
+            )
+            cars.append(new_car)
 
-
-class MazeWindow(arcade.Window):
-    def __init__(self, env):
-        super().__init__(SPRITE_SIZE * env.parking_lot.width, SPRITE_SIZE * env.parking_lot.height, "ESGI Maze")
-        self.env = env
-        self.walls = arcade.SpriteList()
-        self.letters = arcade.SpriteList()
-        self.input = None
-        self.goal = arcade.Sprite(':resources:images/tiles/signExit.png', 0.5)
-        arcade.set_background_color(arcade.color.AMAZON)
+        return cars
 
     def setup(self):
-        self.walls.clear()
+        self.parking = self.create_parking()
 
-        for i in range(self.env.parking_lot.height):
-            for j in range(self.env.parking_lot.width):
-                car = self.env.parking_lot.find_car(j, i)
-                if car:
-                    file = self.find_file(car.color)
-                    if file:
-                        sprite = self.create_sprite(f"resources/{file}", (j, i))
-                        self.walls.append(sprite)
-                        y, x = j  * SPRITE_SIZE, (self.env.parking_lot.height - i ) * SPRITE_SIZE
+    def to_string(self):
+        for row in range(self.parking.rows):
+            for col in range(self.parking.cols):
+                if any([car.x == col and car.y == row for car in self.parking.get_car_positions()]):
+                    print("X", end="")
+                else:
+                    print(".", end="")
+            print()
 
-        finish_x, finish_y = (self.env.parking_lot.finish[1] + 0.5) * SPRITE_SIZE, (
-                    self.env.parking_lot.height - self.env.parking_lot.finish[0] - 0.5) * SPRITE_SIZE
-        self.goal.center_x, self.goal.center_y = finish_x, finish_y
 
-    def find_file(self, name):
-        for root, dirs, files in os.walk('resources'):
-            for file in files:
-                if name in file:
-                    return file
-        return None
-
-    def create_sprite(self, resource, state):
-        sprite = arcade.Sprite(resource, 0.5)
-        sprite.center_x = (state[1] + 0.5) * SPRITE_SIZE
-        sprite.center_y = (self.env.parking_lot.height - state[0] - 0.5) * SPRITE_SIZE
-        return sprite
-
-    def update_sprites(self):
-        # Met à jour les positions des sprites dans self.letters et self.walls
-        for letter_sprite, car in zip(self.letters, self.env.parking_lot.cars):
-            letter_sprite.center_x = (car.x + 0.5) * SPRITE_SIZE
-            letter_sprite.center_y = (self.env.parking_lot.height - car.y - 0.5) * SPRITE_SIZE
-
-        for wall_sprite, car in zip(self.walls, self.env.parking_lot.cars):
-            wall_sprite.center_x = (car.x + 0.5) * SPRITE_SIZE
-            wall_sprite.center_y = (self.env.parking_lot.height - car.y - 0.5) * SPRITE_SIZE
+class RushHourGame(arcade.Window):
+    def __init__(self, env):
+        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
+        self.env = env
+        arcade.set_background_color(arcade.color.DARK_SPRING_GREEN)
+        self.input = None
 
     def on_draw(self):
+        """Affiche les éléments du jeu."""
+        self.clear()
         arcade.start_render()
-        self.walls.draw()
-        self.goal.draw()
 
-    def on_key_press(self, key, modifiers):
-        if key in MOVES_NUMBER and self.input is not None:
-            x, y = self.input
-            # Conversion des coordonnées de la souris en coordonnées de la grille
-            col = x // SPRITE_SIZE
-            row = (self.height - y) // SPRITE_SIZE
-            car = self.env.parking_lot.find_car(col, row)
-            print(f"Car: {car}")
-            if car:
-                action = MOVES_NUMBER[key]
-                self.env.parking_lot.update(action, car)
-                self.update_sprites()
-                print(f"Action: {action}")
-                self.on_draw()
+        self.draw_grass()
+
+        self.draw_parking()
+
+        self.draw_cars()
+
+        self.draw_exit()
+
+    def draw_parking(self):
+        # Fond gris pour le parking
+        arcade.draw_rectangle_filled(
+            SCREEN_WIDTH / 2,
+            SCREEN_HEIGHT / 2,
+            TILE_SIZE * self.env.parking.cols,
+            TILE_SIZE * self.env.parking.rows,
+            arcade.color.GRAY,
+        )
+        # Lignes de la grille
+        for row in range(self.env.parking.rows + 1):
+            y = row * TILE_SIZE + PARKING_OFFSET
+            arcade.draw_line(
+                PARKING_OFFSET,
+                y,
+                PARKING_OFFSET + self.env.parking.rows * TILE_SIZE,
+                y,
+                arcade.color.BLACK,
+                2,
+            )
+        for col in range(self.env.parking.cols + 1):
+            x = col * TILE_SIZE + PARKING_OFFSET
+            arcade.draw_line(
+                x,
+                PARKING_OFFSET,
+                x,
+                PARKING_OFFSET + self.env.parking.cols * TILE_SIZE,
+                arcade.color.BLACK,
+                2,
+            )
+
+    def draw_cars(self):
+        for car in self.env.parking.cars:
+            for point in car.points:
+                x = point.x * TILE_SIZE + TILE_SIZE / 2 + PARKING_OFFSET
+                y = point.y * TILE_SIZE + TILE_SIZE / 2 + PARKING_OFFSET
+                arcade.draw_rectangle_filled(x, y, TILE_SIZE - 10, TILE_SIZE - 10, car.color)
+
+    def draw_grass(self):
+        arcade.draw_rectangle_filled(
+            SCREEN_WIDTH / 2,
+            SCREEN_HEIGHT / 2,
+            SCREEN_WIDTH,
+            SCREEN_HEIGHT,
+            arcade.color.DARK_SPRING_GREEN,
+        )
+
+    def draw_exit(self):
+        x = self.env.parking.exit_point.x * TILE_SIZE + PARKING_OFFSET
+        y = self.env.parking.exit_point.y * TILE_SIZE + TILE_SIZE / 2 + PARKING_OFFSET
+        # Indication de la sortie
+        arcade.draw_rectangle_filled(x + TILE_SIZE / 2, y, TILE_SIZE, TILE_SIZE, arcade.color.LIGHT_RED_OCHRE)
+        arcade.draw_text("EXIT", x + TILE_SIZE / 2 - 20, y - 10, arcade.color.BLACK, 16, bold=True)
 
     def on_mouse_release(self, x, y, button, modifiers):
         self.input = (x, y)
 
+    def on_key_press(self, key, modifiers):
+        print("Key pressed", key)
+        if key in MOVES_NUMBER and self.input is not None:
+            x, y = self.input
+            col = (x - PARKING_OFFSET) // TILE_SIZE
+            row = (y - PARKING_OFFSET) // TILE_SIZE
+            car: Car = self.env.parking.find_car(col, row)
+            if car is not None:
+                self.env.parking.move_car(car, key)
+                print(f"Car {car.color} at {col}, {row} moves {MOVES_NUMBER[key]}")
+                self.clear()
+                self.on_draw()
+                if car.is_main   and self.env.parking.you_win():
+                    print("Vous avez gagné !")
+                    #self.show_win_message()
+
+    def show_win_message(self):
+        """Affiche un message de victoire."""
+        self.clear()
+        arcade.start_render()
+        arcade.draw_text(
+            "Bravo, vous avez gagné !",
+            SCREEN_WIDTH / 2 - 150,
+            SCREEN_HEIGHT / 2,
+            arcade.color.WHITE,
+            24,
+            align="center",
+            anchor_x="center",
+            anchor_y="center",
+            width=300  # Ajoutez une largeur pour que le texte soit centré
+        )
+        arcade.pause(3)  # Pause de 3 secondes avant de fermer
+        arcade.close_window()
+
 
 if __name__ == "__main__":
-    env = Environment("app-config.json")
-    window = MazeWindow(env)
-    window.setup()
+    env = Environment("levels/level2.json")
+    env.setup()
+    env.to_string()
+    window = RushHourGame(env)
     arcade.run()

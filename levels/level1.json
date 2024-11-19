@@ -1,0 +1,24 @@
+{
+  "cars": [
+    {
+      "color": "yellow",
+      "direction": "H",
+      "case": [
+        {"x": 0, "y": 3},
+        {"x": 1, "y": 3}
+      ]
+    }
+  ],
+  "main_car": {
+        "direction": "H",
+        "case": [{"x": 3, "y": 3}]
+    },
+    "exit": {
+        "x": 7,
+        "y": 3
+    },
+    "map": {
+      "height": 7,
+      "width": 7
+    }
+}
