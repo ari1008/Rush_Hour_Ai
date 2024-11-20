@@ -195,8 +195,8 @@ class RushHourGame(arcade.Window):
     def draw_parking(self):
         # Fond gris pour le parking
         arcade.draw_rectangle_filled(
-            SCREEN_WIDTH / 2,
-            SCREEN_HEIGHT / 2,
+            TILE_SIZE * self.env.parking.cols / 2 + PARKING_OFFSET,
+            TILE_SIZE * self.env.parking.rows / 2 + PARKING_OFFSET,
             TILE_SIZE * self.env.parking.cols,
             TILE_SIZE * self.env.parking.rows,
             arcade.color.GRAY,
