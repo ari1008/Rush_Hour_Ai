@@ -1,6 +1,9 @@
-import json
-import os
 import arcade
+import random
+import json
+import pickle
+from collections import defaultdict
+import time
 
 SPRITE_SIZE = 64
 
@@ -12,7 +15,6 @@ MOVES = {
     'RIGHT': (1, 0)  # Droite : augmente x
 }
 
-# Codes des touches directionnelles (par exemple pour Pygame ou Arcade)
 MOVES_NUMBER = {
     65364: 'UP',  # Flèche haut
     65362: 'DOWN',  # Flèche bas
@@ -20,12 +22,12 @@ MOVES_NUMBER = {
     65363: 'RIGHT'  # Flèche droite
 }
 
-# Axes associés aux directions (Horizontal ou Vertical)
+
 MOVEMENT_AXES = {
-    'UP': 'V',  # Haut = axe vertical
-    'DOWN': 'V',  # Bas = axe vertical
-    'LEFT': 'H',  # Gauche = axe horizontal
-    'RIGHT': 'H'  # Droite = axe horizontal
+    'UP': 'V',
+    'DOWN': 'V',
+    'LEFT': 'H',
+    'RIGHT': 'H'
 }
 
 SCREEN_WIDTH = 700
@@ -100,7 +102,7 @@ class Parking:
             arcade.color.AERO_BLUE
             return
 
-        # Vérification des limites du parking
+
         for point in car.points:
             new_x = point.x + move[0]
             new_y = point.y + move[1]
@@ -108,12 +110,11 @@ class Parking:
                 print("Mouvement hors des limites !")
                 return
 
-            # Vérifiez les collisions avec d'autres voitures
+
             if self.find_car(new_x, new_y) and self.find_car(new_x, new_y) != car:
                 print("Collision détectée !")
                 return
 
-        # Mise à jour des positions si aucune collision
         for point in car.points:
             point.x += move[0]
             point.y += move[1]
@@ -193,7 +194,6 @@ class RushHourGame(arcade.Window):
         self.draw_exit()
 
     def draw_parking(self):
-        # Fond gris pour le parking
         arcade.draw_rectangle_filled(
             TILE_SIZE * self.env.parking.cols / 2 + PARKING_OFFSET,
             TILE_SIZE * self.env.parking.rows / 2 + PARKING_OFFSET,
@@ -201,7 +201,6 @@ class RushHourGame(arcade.Window):
             TILE_SIZE * self.env.parking.rows,
             arcade.color.GRAY,
         )
-        # Lignes de la grille
         for row in range(self.env.parking.rows + 1):
             y = row * TILE_SIZE + PARKING_OFFSET
             arcade.draw_line(
@@ -242,7 +241,6 @@ class RushHourGame(arcade.Window):
     def draw_exit(self):
         x = self.env.parking.exit_point.x * TILE_SIZE + PARKING_OFFSET
         y = self.env.parking.exit_point.y * TILE_SIZE + TILE_SIZE / 2 + PARKING_OFFSET
-        # Indication de la sortie
         arcade.draw_rectangle_filled(x + TILE_SIZE / 2, y, TILE_SIZE, TILE_SIZE, arcade.color.LIGHT_RED_OCHRE)
         arcade.draw_text("EXIT", x + TILE_SIZE / 2 - 20, y - 10, arcade.color.BLACK, 16, bold=True)
 
@@ -250,7 +248,6 @@ class RushHourGame(arcade.Window):
         self.input = (x, y)
 
     def on_key_press(self, key, modifiers):
-        print("Key pressed", key)
         if key in MOVES_NUMBER and self.input is not None:
             x, y = self.input
             col = (x - PARKING_OFFSET) // TILE_SIZE
@@ -278,15 +275,186 @@ class RushHourGame(arcade.Window):
             align="center",
             anchor_x="center",
             anchor_y="center",
-            width=300  # Ajoutez une largeur pour que le texte soit centré
+            width=300
         )
-        arcade.pause(3)  # Pause de 3 secondes avant de fermer
+        arcade.pause(3)
         arcade.close_window()
+
+class RushHourAgent:
+    def __init__(self, discount=0.95, learning_rate=0.1, epsilon=0.1):
+        self.q_table = defaultdict(lambda: defaultdict(float))
+        self.discount = discount
+        self.learning_rate = learning_rate
+        self.epsilon = epsilon
+        self.available_moves = [65364, 65362, 65361, 65363]  # UP, DOWN, LEFT, RIGHT
+
+    def get_state_key(self, parking):
+        state = []
+        for car in parking.cars:
+            car_state = []
+            for point in car.points:
+                car_state.append(f"{point.x},{point.y}")
+            state.append("|".join(car_state))
+        return "_".join(state)
+
+    def choose_action(self, state, parking):
+        if random.random() < self.epsilon:
+            return random.choice(self.available_moves)
+
+        q_values = self.q_table[state]
+        if not q_values:
+            return random.choice(self.available_moves)
+
+        return max(q_values.items(), key=lambda x: x[1])[0]
+
+    def learn(self, state, action, reward, next_state):
+        best_next_value = max(self.q_table[next_state].values()) if self.q_table[next_state] else 0
+        old_value = self.q_table[state][action]
+        self.q_table[state][action] = old_value + self.learning_rate * (
+                reward + self.discount * best_next_value - old_value)
+
+    def save_qtable(self, filename):
+        with open(filename, 'wb') as f:
+            pickle.dump(dict(self.q_table), f)
+
+    def load_qtable(self, filename):
+        try:
+            with open(filename, 'rb') as f:
+                loaded_dict = pickle.load(f)
+                self.q_table = defaultdict(lambda: defaultdict(float), loaded_dict)
+            return True
+        except FileNotFoundError:
+            return False
+
+
+class RushHourGameAI(RushHourGame):
+    def __init__(self, env, agent, mode='manual'):
+        super().__init__(env)
+        self.agent = agent
+        self.mode = mode  # 'manual' or 'auto'
+        self.current_car = None
+        self.episode_steps = 0
+        self.max_steps = 1000
+        self.training = True
+        self.last_state = None
+        self.last_action = None
+
+    def update(self, delta_time):
+        """Update game state for automatic mode"""
+        if self.mode == 'auto' and self.training:
+            if self.episode_steps >= self.max_steps:
+                self.reset_episode()
+                return
+
+            state = self.agent.get_state_key(self.env.parking)
+
+            # Choose and execute action
+            action = self.agent.choose_action(state, self.env.parking)
+
+            # Find a random car that can move in the chosen direction
+            movable_cars = self.find_movable_cars(action)
+            if movable_cars:
+                car = random.choice(movable_cars)
+                old_positions = [(p.x, p.y) for p in car.points]
+
+                # Try to move the car
+                self.env.parking.move_car(car, action)
+
+                # Calculate reward
+                new_state = self.agent.get_state_key(self.env.parking)
+                reward = self.calculate_reward(car, old_positions)
+
+                # Learn from this action
+                self.agent.learn(state, action, reward, new_state)
+
+                if self.env.parking.you_win():
+                    print("AI won!")
+                    reward = 100
+                    self.agent.learn(state, action, reward, new_state)
+                    self.reset_episode()
+
+            self.episode_steps += 1
+
+            self.clear()
+            self.on_draw()
+            time.sleep(0.1)
+
+    def find_movable_cars(self, move):
+        movable_cars = []
+        for car in self.env.parking.cars:
+            if car.direction == MOVEMENT_AXES[MOVES_NUMBER[move]]:
+                can_move = True
+                move_vector = MOVES[MOVES_NUMBER[move]]
+                for point in car.points:
+                    new_x = point.x + move_vector[0]
+                    new_y = point.y + move_vector[1]
+                    if not (0 <= new_x < self.env.parking.cols and 0 <= new_y < self.env.parking.rows):
+                        can_move = False
+                        break
+                    other_car = self.env.parking.find_car(new_x, new_y)
+                    if other_car and other_car != car:
+                        can_move = False
+                        break
+                if can_move:
+                    movable_cars.append(car)
+        return movable_cars
+
+    def calculate_reward(self, car, old_positions):
+        if self.env.parking.you_win():
+            return 100
+
+        if car.is_main:
+            old_distance = self.calculate_distance_to_exit(old_positions)
+            new_distance = self.calculate_distance_to_exit([(p.x, p.y) for p in car.points])
+            if new_distance < old_distance:
+                return 1
+            elif new_distance > old_distance:
+                return -1
+
+        return -0.1
+
+    def calculate_distance_to_exit(self, positions):
+        exit_x = self.env.parking.exit_point.x
+        exit_y = self.env.parking.exit_point.y
+        return min(abs(pos[0] - exit_x) + abs(pos[1] - exit_y) for pos in positions)
+
+    def reset_episode(self):
+        self.episode_steps = 0
+        self.env.setup()
+        self.clear()
+        self.on_draw()
+
+    def toggle_mode(self):
+        self.mode = 'auto' if self.mode == 'manual' else 'manual'
+        print(f"Switched to {self.mode} mode")
+
+    def on_key_press(self, key, modifiers):
+        if key == arcade.key.T:  # 'T' to toggle mode
+            self.toggle_mode()
+        elif key == arcade.key.S:  # 'S' to save Q-table
+            self.agent.save_qtable('qtable.pickle')
+            print("Q-table saved")
+        elif key == arcade.key.L:  # 'L' to load Q-table
+            if self.agent.load_qtable('qtable.pickle'):
+                print("Q-table loaded")
+            else:
+                print("No saved Q-table found")
+        elif self.mode == 'manual':
+            super().on_key_press(key, modifiers)
+
+
+def main():
+    env = Environment("levels/level2.json")
+    env.setup()
+    agent = RushHourAgent()
+    agent.load_qtable('qtable.pickle')
+
+    window = RushHourGameAI(env, agent, mode='manual')
+
+    arcade.run()
 
 
 if __name__ == "__main__":
-    env = Environment("levels/level2.json")
-    env.setup()
-    env.to_string()
-    window = RushHourGame(env)
-    arcade.run()
+    main()
+
+
