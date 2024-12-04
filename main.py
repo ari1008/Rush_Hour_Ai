@@ -277,11 +277,11 @@ class RushHourGame(arcade.Window):
             anchor_y="center",
             width=300
         )
-        arcade.pause(3)
+        #arcade.pause(3)
         arcade.close_window()
 
 class RushHourAgent:
-    def __init__(self, discount=0.95, learning_rate=0.1, epsilon=0.1):
+    def __init__(self, discount=0.95, learning_rate=0.001, epsilon=1):
         self.q_table = defaultdict(lambda: defaultdict(float))
         self.discount = discount
         self.learning_rate = learning_rate
@@ -377,7 +377,7 @@ class RushHourGameAI(RushHourGame):
 
             self.clear()
             self.on_draw()
-            time.sleep(0.1)
+            #time.sleep(0.1)
 
     def find_movable_cars(self, move):
         movable_cars = []
@@ -444,7 +444,7 @@ class RushHourGameAI(RushHourGame):
 
 
 def main():
-    env = Environment("levels/level2.json")
+    env = Environment("levels/level1.json")
     env.setup()
     agent = RushHourAgent()
     agent.load_qtable('qtable.pickle')
