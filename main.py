@@ -210,7 +210,34 @@ class RushHourGame(arcade.Window):
         16,
         bold=True,
         )
-    
+        if self.win_message:
+            arcade.draw_text(
+                self.win_message,
+                SCREEN_WIDTH // 2 - 100,  # Centrer le message horizontalement
+                SCREEN_HEIGHT // 2,  # Centrer le message verticalement
+                arcade.color.YELLOW,
+                24,
+                bold=True,
+            )
+        if self.game_over:
+            arcade.draw_text(
+                self.win_message,
+                SCREEN_WIDTH // 2 - 100,
+                SCREEN_HEIGHT // 2,
+                arcade.color.YELLOW,
+                24,
+                bold=True,
+            )
+            arcade.draw_text(
+                f"Final Score: {self.score}",
+                SCREEN_WIDTH // 2 - 80,
+                SCREEN_HEIGHT // 2 - 40,
+                arcade.color.WHITE,
+                20,
+                bold=True,
+            )
+        return
+
 
     def draw_parking(self):
         arcade.draw_rectangle_filled(
@@ -360,6 +387,9 @@ class RushHourGameAI(RushHourGame):
         self.last_action = None
         self.score = 0  
         self.agent_state = "" 
+        self.win_message = ""
+        self.game_over = False
+
 
     def update(self, delta_time):
         """Update game state for automatic mode"""
@@ -395,6 +425,8 @@ class RushHourGameAI(RushHourGame):
                     reward = 100
                     self.score += reward
                     self.agent.learn(state, action, reward, new_state)
+                    self.win_message = "AI WON! Congratulations"
+                    self.game_over = True
                     self.reset_episode()
 
             self.episode_steps += 1
