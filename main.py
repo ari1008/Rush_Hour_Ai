@@ -193,6 +193,25 @@ class RushHourGame(arcade.Window):
 
         self.draw_exit()
 
+        arcade.draw_text(
+        f"Score: {self.score}",
+        10,
+        SCREEN_HEIGHT - 30,
+        arcade.color.WHITE,
+        16,
+        bold=True,
+        )
+
+        arcade.draw_text(
+        f"Agent State: {self.agent_state}",
+        10,
+        SCREEN_HEIGHT - 60,
+        arcade.color.WHITE,
+        16,
+        bold=True,
+        )
+    
+
     def draw_parking(self):
         arcade.draw_rectangle_filled(
             TILE_SIZE * self.env.parking.cols / 2 + PARKING_OFFSET,
@@ -285,7 +304,8 @@ class RushHourAgent:
         self.q_table = defaultdict(lambda: defaultdict(float))
         self.discount = discount
         self.learning_rate = learning_rate
-        self.epsilon = epsilon
+        #self.epsilon = epsilon
+        self.epsilon = max(0.1, epsilon * 0.99) 
         self.available_moves = [65364, 65362, 65361, 65363]  # UP, DOWN, LEFT, RIGHT
 
     def get_state_key(self, parking):
@@ -338,6 +358,8 @@ class RushHourGameAI(RushHourGame):
         self.training = True
         self.last_state = None
         self.last_action = None
+        self.score = 0  
+        self.agent_state = "" 
 
     def update(self, delta_time):
         """Update game state for automatic mode"""
@@ -347,7 +369,7 @@ class RushHourGameAI(RushHourGame):
                 return
 
             state = self.agent.get_state_key(self.env.parking)
-
+            self.agent_state = state
             # Choose and execute action
             action = self.agent.choose_action(state, self.env.parking)
 
@@ -364,12 +386,14 @@ class RushHourGameAI(RushHourGame):
                 new_state = self.agent.get_state_key(self.env.parking)
                 reward = self.calculate_reward(car, old_positions)
 
+                self.score += reward
                 # Learn from this action
                 self.agent.learn(state, action, reward, new_state)
 
                 if self.env.parking.you_win():
                     print("AI won!")
                     reward = 100
+                    self.score += reward
                     self.agent.learn(state, action, reward, new_state)
                     self.reset_episode()
 
@@ -401,17 +425,17 @@ class RushHourGameAI(RushHourGame):
 
     def calculate_reward(self, car, old_positions):
         if self.env.parking.you_win():
-            return 100
+            return 10
 
         if car.is_main:
             old_distance = self.calculate_distance_to_exit(old_positions)
             new_distance = self.calculate_distance_to_exit([(p.x, p.y) for p in car.points])
             if new_distance < old_distance:
-                return 1
+                return -10
             elif new_distance > old_distance:
-                return -1
+                return -50
 
-        return -0.1
+        return -10
 
     def calculate_distance_to_exit(self, positions):
         exit_x = self.env.parking.exit_point.x
