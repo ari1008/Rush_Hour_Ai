@@ -487,9 +487,9 @@ class RushHourGameAI(RushHourGame):
             old_distance = self.calculate_distance_to_exit(old_positions)
             new_distance = self.calculate_distance_to_exit([(p.x, p.y) for p in car.points])
             if new_distance < old_distance:
-                return -10  # Increased reward for moving closer
+                return 10  # Increased reward for moving closer
             elif new_distance > old_distance:
-                return -10 # Reduced penalty for moving away
+                return -5 # Reduced penalty for moving away
 
         return -1 # Small penalty for each step
 
