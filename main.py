@@ -4,6 +4,8 @@ import json
 import pickle
 from collections import defaultdict
 import time
+import matplotlib.pyplot as plt
+
 
 SPRITE_SIZE = 64
 
@@ -21,7 +23,6 @@ MOVES_NUMBER = {
     65361: 'LEFT',  # Flèche gauche
     65363: 'RIGHT'  # Flèche droite
 }
-
 
 MOVEMENT_AXES = {
     'UP': 'V',
@@ -51,13 +52,11 @@ def get_color_enum(color_name):
 
 
 class Car:
-
     def __init__(self, color, is_main=False, direction="V", points=[]):
         self.color: arcade.color = get_color_enum(color)
         self.direction = direction
         self.is_main = is_main
         self.points = points
-
 
 
 class Parking:
@@ -115,7 +114,7 @@ class Parking:
         for point in car.points:
             point.x += move[0]
             point.y += move[1]
-        print(f"Car {car.color} moved {direction}")
+        #print(f"Car {car.color} moved {direction}")
         return True
 
 
@@ -146,7 +145,7 @@ class Environment:
         return parking
 
     def create_cars(self):
-        cars = [Car("red", True, direction=self.config["main_car"]["direction"],points=[Point(p["x"], p["y"]) for p in self.config["main_car"]["case"]])]
+        cars = [Car("red", True, direction=self.config["main_car"]["direction"], points=[Point(p["x"], p["y"]) for p in self.config["main_car"]["case"]])]
         for car in self.config["cars"]:
             new_car = Car(
                 color=car["color"],
@@ -177,6 +176,12 @@ class RushHourGame(arcade.Window):
         self.env = env
         arcade.set_background_color(arcade.color.DARK_SPRING_GREEN)
         self.input = None
+        self.score = 0
+        self.agent_state = ""
+        self.win_message = ""
+        self.game_over = False
+        self.paused = False
+        self.all_scores = []  # Store all scores
 
     def on_draw(self):
         """Affiche les éléments du jeu."""
@@ -184,39 +189,47 @@ class RushHourGame(arcade.Window):
         arcade.start_render()
 
         self.draw_grass()
-
         self.draw_parking()
-
         self.draw_cars()
-
         self.draw_exit()
 
         arcade.draw_text(
-        f"Score: {self.score}",
-        10,
-        SCREEN_HEIGHT - 30,
-        arcade.color.WHITE,
-        16,
-        bold=True,
+            f"Score: {self.score}",
+            10,
+            SCREEN_HEIGHT - 30,
+            arcade.color.WHITE,
+            16,
+            bold=True,
         )
 
         arcade.draw_text(
-        f"Agent State: {self.agent_state}",
-        10,
-        SCREEN_HEIGHT - 60,
-        arcade.color.WHITE,
-        16,
-        bold=True,
+            f"Agent State: {self.agent_state}",
+            10,
+            SCREEN_HEIGHT - 60,
+            arcade.color.WHITE,
+            16,
+            bold=True,
         )
+
+        arcade.draw_text(
+            f"All Scores: {self.all_scores}",
+            10,
+            SCREEN_HEIGHT - 90,
+            arcade.color.WHITE,
+            16,
+            bold=True,
+        )
+
         if self.win_message:
             arcade.draw_text(
                 self.win_message,
-                SCREEN_WIDTH // 2 - 100,  # Centrer le message horizontalement
-                SCREEN_HEIGHT // 2,  # Centrer le message verticalement
+                SCREEN_WIDTH // 2 - 100,
+                SCREEN_HEIGHT // 2,
                 arcade.color.YELLOW,
                 24,
                 bold=True,
             )
+
         if self.game_over:
             arcade.draw_text(
                 self.win_message,
@@ -234,8 +247,6 @@ class RushHourGame(arcade.Window):
                 20,
                 bold=True,
             )
-        return
-
 
     def draw_parking(self):
         arcade.draw_rectangle_filled(
@@ -299,12 +310,12 @@ class RushHourGame(arcade.Window):
             car: Car = self.env.parking.find_car(col, row)
             if car is not None:
                 self.env.parking.move_car(car, key)
-                print(f"Car {car.color} at {col}, {row} moves {MOVES_NUMBER[key]}")
+                #print(f"Car {car.color} at {col}, {row} moves {MOVES_NUMBER[key]}")
                 self.clear()
                 self.on_draw()
-                if car.is_main   and self.env.parking.you_win():
+                if car.is_main and self.env.parking.you_win():
                     print("Vous avez gagné !")
-                    #self.show_win_message()
+                    self.show_win_message()
 
     def show_win_message(self):
         """Affiche un message de victoire."""
@@ -321,11 +332,12 @@ class RushHourGame(arcade.Window):
             anchor_y="center",
             width=300
         )
-        #arcade.pause(3)
+        arcade.pause(3)
         arcade.close_window()
 
+
 class RushHourAgent:
-    def __init__(self, discount=0.95, learning_rate=0.1, epsilon=0.3):
+    def __init__(self, discount=0.95, learning_rate=0.2, epsilon=1.0):
         self.q_table = defaultdict(lambda: defaultdict(float))
         self.discount = discount
         self.learning_rate = learning_rate
@@ -333,13 +345,11 @@ class RushHourAgent:
         self.available_moves = [65364, 65362, 65361, 65363]  # UP, DOWN, LEFT, RIGHT
 
     def get_state_key(self, parking):
-        state = []
-        for car in parking.cars:
-            car_state = []
-            for point in car.points:
-                car_state.append(f"{point.x},{point.y}")
-            state.append("|".join(car_state))
-        return "_".join(state)
+        """Simplified state representation."""
+        main_car = next(car for car in parking.cars if car.is_main)
+        main_car_positions = [(p.x, p.y) for p in main_car.points]
+        other_car_positions = [(p.x, p.y) for car in parking.cars if not car.is_main for p in car.points]
+        return f"{main_car_positions}_{other_car_positions}"
 
     def choose_action(self, state, parking):
         if random.random() < self.epsilon:
@@ -354,8 +364,7 @@ class RushHourAgent:
         old_value = self.q_table[state][action]
         self.q_table[state][action] = old_value + self.learning_rate * (
                 reward + self.discount * best_next_value - old_value)
-        self.epsilon = max(0.1, self.epsilon * 0.99)  # Reduce epsilon over time
-
+        self.epsilon = max(0.1, self.epsilon * 0.999)  # Reduce epsilon over time
 
     def save_qtable(self, filename):
         with open(filename, 'wb') as f:
@@ -382,23 +391,37 @@ class RushHourGameAI(RushHourGame):
         self.training = True
         self.last_state = None
         self.last_action = None
-        self.score = 0  
-        self.agent_state = "" 
+        self.score = 0
+        self.agent_state = ""
         self.win_message = ""
         self.game_over = False
+        self.paused = False
+        self.best_score = int(1e9)
+        self.all_scores = []
 
     def update(self, delta_time):
         if self.mode == 'auto' and self.training:
             state = self.agent.get_state_key(self.env.parking)
             if self.env.parking.you_win():
-                print("AI won!")
+                #print("AI won!")
                 self.agent.save_qtable('qtable.pickle')
-                reward = 100
+                reward = 1000
                 self.score += reward
+                #print(f"Final score: {self.score}")
                 self.agent.learn(state, self.last_action, reward, self.agent.get_state_key(self.env.parking))
                 self.win_message = "AI WON! Congratulations"
                 self.game_over = True
+                self.paused = True
+                self.all_scores.append(self.score) 
+                print(f"Final steps: {self.episode_steps}")
+                if self.episode_steps < self.best_score:
+                    self.best_score = self.episode_steps
+                    print(f"New best score: {int(self.best_score)} steps")
+                self.score = 0  # Reset the score
+                self.agent.epsilon = min(1.0, self.agent.epsilon + 0.1)
                 self.reset_episode()
+                return
+
             if self.episode_steps >= self.max_steps:
                 self.reset_episode()
                 return
@@ -430,6 +453,7 @@ class RushHourGameAI(RushHourGame):
                     self.agent.learn(state, action, reward, self.agent.get_state_key(self.env.parking))
 
             self.episode_steps += 1
+            self.score -= 10 
             self.clear()
             self.on_draw()
 
@@ -457,17 +481,17 @@ class RushHourGameAI(RushHourGame):
     def calculate_reward(self, car, old_positions):
         """Calculate the reward for the current action."""
         if self.env.parking.you_win():
-            return 100
+            return 300  # Large reward for winning
 
         if car.is_main:
             old_distance = self.calculate_distance_to_exit(old_positions)
             new_distance = self.calculate_distance_to_exit([(p.x, p.y) for p in car.points])
             if new_distance < old_distance:
-                return 1
+                return -10  # Increased reward for moving closer
             elif new_distance > old_distance:
-                return -1
+                return -10 # Reduced penalty for moving away
 
-        return -0.1
+        return -1 # Small penalty for each step
 
     def calculate_distance_to_exit(self, positions):
         """Calculate the Manhattan distance to the exit."""
@@ -478,6 +502,7 @@ class RushHourGameAI(RushHourGame):
     def reset_episode(self):
         """Reset the environment for a new episode."""
         self.episode_steps = 0
+        self.win_message = ""
         self.env.setup()
         self.clear()
         self.on_draw()
@@ -512,8 +537,12 @@ def main():
 
     arcade.run()
 
+    plt.plot(window.all_scores)
+    plt.xlabel("Episode")
+    plt.ylabel("Steps")
+    plt.title("Steps per Episode")
+    plt.show()
+
 
 if __name__ == "__main__":
     main()
-
-
