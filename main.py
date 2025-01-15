@@ -3,7 +3,6 @@ import random
 import json
 import pickle
 from collections import defaultdict
-import time
 import matplotlib.pyplot as plt
 
 
@@ -52,7 +51,9 @@ def get_color_enum(color_name):
 
 
 class Car:
-    def __init__(self, color, is_main=False, direction="V", points=[]):
+    def __init__(self, color, is_main=False, direction="V", points=None):
+        if points is None:
+            points = []
         self.color: arcade.color = get_color_enum(color)
         self.direction = direction
         self.is_main = is_main
@@ -60,7 +61,9 @@ class Car:
 
 
 class Parking:
-    def __init__(self, cols, rows, exit_point, cars=[]):
+    def __init__(self, cols, rows, exit_point, cars=None):
+        if cars is None:
+            cars = []
         self.cols = cols
         self.rows = rows
         self.exit_point = exit_point
@@ -338,7 +341,7 @@ class RushHourGame(arcade.Window):
 
 
 class RushHourAgent:
-    def __init__(self, discount=0.95, learning_rate=0.2, epsilon=0.75):
+    def __init__(self, discount=0.95, learning_rate=0.2, epsilon=1):
         self.q_table = defaultdict(lambda: defaultdict(float))
         self.discount = discount
         self.learning_rate = learning_rate
@@ -400,27 +403,21 @@ class RushHourGameAI(RushHourGame):
         self.paused = False
         self.best_score = int(1e9)
         self.all_scores = []
+        self.reward = 0
 
     def update(self, delta_time):
         if self.mode == 'auto' and self.training:
             state = self.agent.get_state_key(self.env.parking)
             if self.env.parking.you_win():
-                #print("AI won!")
                 self.agent.save_qtable('qtable.pickle')
-                # reward  chelou
-                reward = 700
-                self.score += reward
-                #print(f"Final score: {self.score}")
-                self.agent.learn(state, self.last_action, reward, self.agent.get_state_key(self.env.parking))
-                self.win_message = "AI WON! Congratulations"
+                self.agent.learn(state, self.last_action, self.reward, self.agent.get_state_key(self.env.parking))
                 self.game_over = True
                 self.paused = True
-                self.all_scores.append(self.score) 
+                self.all_scores.append(self.score)
                 print(f"Final steps: {self.episode_steps}")
                 if self.episode_steps < self.best_score:
                     self.best_score = self.episode_steps
                     print(f"New best score: {int(self.best_score)} steps")
-                self.score = 0  # Reset the score
                 self.agent.epsilon = min(1.0, self.agent.epsilon + 0.1)
                 self.reset_episode()
                 return
@@ -434,9 +431,7 @@ class RushHourGameAI(RushHourGame):
             self.last_action = action
 
             movable_cars = self.find_movable_cars(action)
-            reward = 0
             if movable_cars:
-
                 if len(movable_cars) > 1:
                     car_q_values = {}
                     for car in movable_cars:
@@ -446,20 +441,18 @@ class RushHourGameAI(RushHourGame):
                         new_state = self.agent.get_state_key(temp_parking)
                         car_q_values[car] = self.agent.q_table[new_state].get(action, 0)
                         car.points = [Point(p[0], p[1]) for p in old_positions]
-
                     car = max(car_q_values, key=car_q_values.get)
                 else:
                     car = movable_cars[0]
 
                 old_positions = [(p.x, p.y) for p in car.points]
 
-                # reward =/= score
                 if self.env.parking.move_car(car, action):
-                    reward = self.calculate_reward(car, old_positions)
-                    self.agent.learn(state, action, reward, self.agent.get_state_key(self.env.parking))
+                    self.reward = self.calculate_reward(car, old_positions)
+                    self.score += self.reward
+                    self.agent.learn(state, action, self.reward, self.agent.get_state_key(self.env.parking))
 
             self.episode_steps += 1
-            self.score += reward
             self.clear()
             self.on_draw()
 
@@ -499,6 +492,7 @@ class RushHourGameAI(RushHourGame):
     def reset_episode(self):
         """Reset the environment for a new episode."""
         self.episode_steps = 0
+        self.score = 0
         self.win_message = ""
         self.env.setup()
         self.clear()
@@ -524,6 +518,90 @@ class RushHourGameAI(RushHourGame):
             super().on_key_press(key, modifiers)
 
 
+    def draw_qtable_button(self):
+        # Dessine le bouton "Print Q-table"
+        arcade.draw_rectangle_filled(
+            SCREEN_WIDTH - 100,
+            SCREEN_HEIGHT - 30,
+            150,
+            30,
+            arcade.color.BLUE,
+        )
+        arcade.draw_text(
+            "Print Q-table",
+            SCREEN_WIDTH - 150,
+            SCREEN_HEIGHT - 40,
+            arcade.color.WHITE,
+            14,
+            bold=True,
+        )
+
+    def on_draw(self):
+        super().on_draw()
+        self.draw_qtable_button()
+
+    def print_qtable(self):
+        print("\nQ-Table Content:")
+        for state in self.agent.q_table:
+            print(f"\nState: {state}")
+            for action, value in self.agent.q_table[state].items():
+                print(f"Action: {MOVES_NUMBER[action]}, Value: {value:.2f}")
+            print("-" * 50)
+
+    def on_mouse_release(self, x, y, button, modifiers):
+        # Vérifie si le clic est dans la zone du bouton
+        if (SCREEN_WIDTH - 175 <= x <= SCREEN_WIDTH - 25 and
+                SCREEN_HEIGHT - 45 <= y <= SCREEN_HEIGHT - 15):
+            self.print_qtable()
+        else:
+            super().on_mouse_release(x, y, button, modifiers)
+
+    def draw_plot_button(self):
+        # Dessine le bouton "Show Plot"
+        arcade.draw_rectangle_filled(
+            SCREEN_WIDTH - 100,
+            SCREEN_HEIGHT - 70,
+            150,
+            30,
+            arcade.color.GREEN,
+        )
+        arcade.draw_text(
+            "Show Plot",
+            SCREEN_WIDTH - 150,
+            SCREEN_HEIGHT - 80,
+            arcade.color.WHITE,
+            14,
+            bold=True,
+        )
+
+    def on_draw(self):
+        super().on_draw()
+        self.draw_qtable_button()
+        self.draw_plot_button()
+
+    def show_plot(self):
+        plt.figure()
+        plt.plot(self.all_scores)
+        plt.xlabel("Episodes")
+        plt.ylabel("Score")
+        plt.title("Score per Episode")
+        plt.show()
+
+    def on_mouse_release(self, x, y, button, modifiers):
+        # Vérifie si le clic est dans la zone du bouton Q-table
+        if (SCREEN_WIDTH - 175 <= x <= SCREEN_WIDTH - 25 and
+                SCREEN_HEIGHT - 45 <= y <= SCREEN_HEIGHT - 15):
+            self.print_qtable()
+        # Vérifie si le clic est dans la zone du bouton Plot
+        elif (SCREEN_WIDTH - 175 <= x <= SCREEN_WIDTH - 25 and
+              SCREEN_HEIGHT - 85 <= y <= SCREEN_HEIGHT - 55):
+            self.show_plot()
+        else:
+            super().on_mouse_release(x, y, button, modifiers)
+
+
+
+
 def main():
     env = Environment("levels/level3.json")
     env.setup()
@@ -535,9 +613,9 @@ def main():
     arcade.run()
 
     plt.plot(window.all_scores)
-    plt.xlabel("Score")
-    plt.ylabel("Steps")
-    plt.title("Steps per Episode")
+    plt.xlabel("Steps")
+    plt.ylabel("Score")
+    plt.title("Score per Steps")
     plt.show()
 
 
