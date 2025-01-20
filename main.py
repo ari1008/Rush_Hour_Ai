@@ -23,6 +23,13 @@ MOVES_NUMBER = {
     65363: 'RIGHT'  # Flèche droite
 }
 
+MOVES_STR = {
+    'UP': 65364,
+    'DOWN': 65362,
+    'LEFT': 65361,
+    'RIGHT': 65363
+}
+
 MOVEMENT_AXES = {
     'UP': 'V',
     'DOWN': 'V',
@@ -81,6 +88,12 @@ class Parking:
             for point in car.points:
                 if point.x == x and point.y == y:
                     return car
+        return None
+
+    def find_car_color(self, color):
+        for car in self.cars:
+            if car.color == color:
+                return car
         return None
 
     def you_win(self):
@@ -341,28 +354,185 @@ class RushHourGame(arcade.Window):
 
 
 class RushHourAgent:
-    def __init__(self, discount=0.95, learning_rate=0.2, epsilon=1):
+    def __init__(self):
         self.q_table = defaultdict(lambda: defaultdict(float))
-        self.discount = discount
-        self.learning_rate = learning_rate
-        self.epsilon = epsilon
+        self.discount = 0.99  # Augmenter pour favoriser les récompenses futures
+        self.learning_rate = 0.1  # Réduire pour plus de stabilité
+        self.epsilon = 1.0
+        self.epsilon_decay = 0.9995  # Décroissance plus lente
+        self.epsilon_min = 0.1
         self.available_moves = [65364, 65362, 65361, 65363]  # UP, DOWN, LEFT, RIGHT
 
     def get_state_key(self, parking):
-        """Simplified state representation."""
+        cars_info = []
+
         main_car = next(car for car in parking.cars if car.is_main)
-        main_car_positions = [(p.x, p.y) for p in main_car.points]
-        other_car_positions = [(p.x, p.y) for car in parking.cars if not car.is_main for p in car.points]
-        return f"{main_car_positions}_{other_car_positions}"
+        cars_info.append(self.get_string_car(main_car))
+
+        other_cars = []
+        for car in parking.cars:
+            if not car.is_main:
+                car_info = self.get_string_car(car)
+                other_cars.append(car_info)
+
+        other_cars.sort(key=lambda x: x[0])
+        cars_info.extend(other_cars)
+
+        return str(cars_info)
+
+
+    def get_string_car(self, car):
+        if car.direction == 'H':
+            return f"{car.color}({car.points[0].x},{car.points[-1].x}),H,{len(car.points)}"
+        else:
+            return f"{car.color}({car.points[0].y},{car.points[-1].y}),V,{len(car.points)}"
+
+
+    def is_blocking_exit(self, car, main_car, parking):
+        """Vérifie si une voiture bloque le chemin vers la sortie."""
+        if car.is_main:
+            return False
+
+        exit_x = parking.exit_point.x
+        exit_y = parking.exit_point.y
+        main_positions = [(p.x, p.y) for p in main_car.points]
+        car_positions = [(p.x, p.y) for p in car.points]
+
+        # Vérifie si la voiture est entre la voiture principale et la sortie
+        for pos in car_positions:
+            if main_car.direction == 'H':
+                if (pos[1] == main_positions[0][1] and
+                        min(main_positions[0][0], exit_x) <= pos[0] <= max(main_positions[0][0], exit_x)):
+                    return True
+            else:
+                if (pos[0] == main_positions[0][0] and
+                        min(main_positions[0][1], exit_y) <= pos[1] <= max(main_positions[0][1], exit_y)):
+                    return True
+        return False
+
+    def distance_to_main_car(self, car, main_car):
+        """Calcule la distance minimale entre une voiture et la voiture principale."""
+        min_distance = float('inf')
+        for p1 in car.points:
+            for p2 in main_car.points:
+                dist = abs(p1.x - p2.x) + abs(p1.y - p2.y)
+                min_distance = min(min_distance, dist)
+        return min_distance
+
+    def count_empty_spaces(self, parking):
+        """Compte le nombre de cases vides dans le parking."""
+        occupied = set()
+        for car in parking.cars:
+            for point in car.points:
+                occupied.add((point.x, point.y))
+        total_spaces = parking.rows * parking.cols
+        return total_spaces - len(occupied)
+
+    def is_exit_blocked(self, parking):
+        """Vérifie si la sortie est bloquée par d'autres voitures."""
+        exit_x = parking.exit_point.x
+        exit_y = parking.exit_point.y
+
+        # Vérifie les cases adjacentes à la sortie
+        adjacent_positions = [
+            (exit_x + 1, exit_y),
+            (exit_x - 1, exit_y),
+            (exit_x, exit_y + 1),
+            (exit_x, exit_y - 1)
+        ]
+
+        blocked_count = 0
+        for x, y in adjacent_positions:
+            if 0 <= x < parking.cols and 0 <= y < parking.rows:
+                car = parking.find_car(x, y)
+                if car and not car.is_main:
+                    blocked_count += 1
+
+        return blocked_count
 
     def choose_action(self, state, parking):
+        available_moves = self.available_moves_cars(parking)
+
+        if not available_moves:
+            return None
+
         if random.random() < self.epsilon:
-            return random.choice(self.available_moves)
+            return random.choice(available_moves)
+
+        # Obtenir les Q-valeurs pour l'état actuel
         q_values = self.q_table[state]
+
+        # Si aucune Q-valeur n'existe pour cet état, choisir aléatoirement
         if not q_values:
-            return random.choice(self.available_moves)
-        ## a  voir si il faut faire un random choice plus poussé
-        return max(q_values.items(), key=lambda x: x[1])[0]
+            return random.choice(available_moves)
+
+
+        available_moves_tuples = [(color, direction, value) for color, direction, value in available_moves]
+
+        best_action = None
+        best_value = float('-inf')
+
+        for action_tuple in available_moves_tuples:
+            if action_tuple in q_values:
+                value = q_values[action_tuple]
+                if value > best_value:
+                    best_value = value
+                    best_action = action_tuple
+
+        # Si aucune action connue n'est trouvée parmi les mouvements disponibles
+        if best_action is None:
+            return random.choice(available_moves)
+
+        return best_action
+
+    def available_moves_cars(self, parking):
+        possible_moves = []
+
+        for direction, move_vector in MOVES.items():
+            for car in parking.cars:
+                if car.direction == MOVEMENT_AXES[direction]:
+                    can_move = True
+                    car_points = self.get_car_points(car)
+                    for x, y in car_points:
+                        new_x = x + move_vector[0]
+                        new_y = y + move_vector[1]
+
+                        if not (0 <= new_x < parking.rows and 0 <= new_y < parking.rows):
+                            can_move = False
+                            break
+
+                        if self.is_position_occupied(parking, new_x, new_y, car):
+                            can_move = False
+                            break
+
+                    if can_move:
+                        possible_moves.append((car.color, direction, 1))
+
+        return possible_moves
+
+    def get_car_points(self, car):
+        points = []
+        if car.direction == 'H':
+            for point in car.points:
+                points.append((point.x, point.y))
+        else:  # 'V'
+            for point in car.points:
+                points.append((point.x, point.y))
+        return points
+
+    def is_position_occupied(self, parking, x, y, excluded_car):
+        for other_car in parking.cars:
+            if other_car != excluded_car:
+                if other_car.direction == 'H':
+                    for point in other_car.points:
+                        if point.y == y and point.x == x:
+                            return True
+                else:  # 'V'
+                    for point in other_car.points:
+                        if point.x == x and point.y == y:
+                            return True
+        return False
+
 
     def learn(self, state, action, reward, next_state):
         best_next_value = max(self.q_table[next_state].values()) if self.q_table[next_state] else 0
@@ -406,55 +576,65 @@ class RushHourGameAI(RushHourGame):
         self.reward = 0
 
     def update(self, delta_time):
-        if self.mode == 'auto' and self.training:
-            state = self.agent.get_state_key(self.env.parking)
-            if self.env.parking.you_win():
-                self.agent.save_qtable('qtable.pickle')
-                self.agent.learn(state, self.last_action, self.reward, self.agent.get_state_key(self.env.parking))
-                self.game_over = True
-                self.paused = True
-                self.all_scores.append(self.score)
-                print(f"Final steps: {self.episode_steps}")
-                if self.episode_steps < self.best_score:
-                    self.best_score = self.episode_steps
-                    print(f"New best score: {int(self.best_score)} steps")
-                self.agent.epsilon = min(1.0, self.agent.epsilon + 0.1)
-                self.reset_episode()
-                return
+        if not self.mode == 'auto' or self.paused:
+            return
 
-            if self.episode_steps >= self.max_steps:
-                self.reset_episode()
-                return
+        if self.env.parking.you_win():
+            self.agent.save_qtable('qtable.pickle')
+            if self.last_state and self.last_action:
+                self.agent.learn(self.last_state, self.last_action, 700, None)
+            if self.score < self.best_score:
+                self.best_score = self.score
+            self.all_scores.append(self.score)
+            print(f"Victoire ! Score: {self.score}, Steps: {self.episode_steps}")
+            self.reset_episode()
+            return
 
-            self.agent_state = state
-            action = self.agent.choose_action(state, self.env.parking)
-            self.last_action = action
+        if self.episode_steps >= self.max_steps:
+            print(f"Nombre maximum d'étapes atteint. Score: {self.score}")
+            self.reset_episode()
+            return
 
-            movable_cars = self.find_movable_cars(action)
-            if movable_cars:
-                if len(movable_cars) > 1:
-                    car_q_values = {}
-                    for car in movable_cars:
-                        temp_parking = self.env.parking
-                        old_positions = [(p.x, p.y) for p in car.points]
-                        temp_parking.move_car(car, action)
-                        new_state = self.agent.get_state_key(temp_parking)
-                        car_q_values[car] = self.agent.q_table[new_state].get(action, 0)
-                        car.points = [Point(p[0], p[1]) for p in old_positions]
-                    car = max(car_q_values, key=car_q_values.get)
-                else:
-                    car = movable_cars[0]
+        # Sauvegarde des positions avant le mouvement
+        old_positions = self.env.parking.get_car_positions()
 
-                old_positions = [(p.x, p.y) for p in car.points]
+        # Obtention de l'état actuel
+        current_state = self.agent.get_state_key(self.env.parking)
 
-                if self.env.parking.move_car(car, action):
-                    self.reward = self.calculate_reward(car, old_positions)
-                    self.score += self.reward
-                    self.agent.learn(state, action, self.reward, self.agent.get_state_key(self.env.parking))
+        # Choix de l'action
+        action = self.agent.choose_action(current_state, self.env.parking)
+        if not action:  # Si aucune action n'est possible
+            self.reset_episode()
+            return
 
-            self.episode_steps += 1
-            self.clear()
-            self.on_draw()
+        car_color, direction, _ = action
+        car = self.env.parking.find_car_color(car_color)
+
+        # Exécution du mouvement
+        if car:
+            move_key = MOVES_STR[direction]
+            moved = self.env.parking.move_car(car, move_key)
+
+            if moved:
+                # Calcul de la récompense et mise à jour du score
+                reward = self.calculate_reward(car, old_positions)
+                self.score += reward
+
+                # Obtention du nouvel état
+                next_state = self.agent.get_state_key(self.env.parking)
+
+                # Apprentissage
+                self.agent.learn(current_state, action, reward, next_state)
+
+                # Mise à jour des variables de suivi
+                self.last_state = current_state
+                self.last_action = action
+                self.episode_steps += 1
+                self.agent_state = f"État: {current_state[:30]}..."
+
+                # Rafraîchissement de l'affichage
+                self.clear()
+                self.on_draw()
 
     def find_movable_cars(self, move):
         """Find all cars that can be moved in the given direction."""
@@ -477,17 +657,13 @@ class RushHourGameAI(RushHourGame):
                     movable_cars.append(car)
         return movable_cars
 
+
+
     def calculate_reward(self, car, old_positions):
         """Calculate the reward for the current action."""
         if self.env.parking.you_win():
-            return 700  # Large reward for winning
-        return -1 # Small penalty for each step
-
-    def calculate_distance_to_exit(self, positions):
-        """Calculate the Manhattan distance to the exit."""
-        exit_x = self.env.parking.exit_point.x
-        exit_y = self.env.parking.exit_point.y
-        return min(abs(pos[0] - exit_x) + abs(pos[1] - exit_y) for pos in positions)
+            return 700
+        return -1
 
     def reset_episode(self):
         """Reset the environment for a new episode."""
