@@ -8,7 +8,6 @@ import matplotlib.pyplot as plt
 import argparse
 
 SPRITE_SIZE = 64
-SPEED = 1
 # Actions
 MOVES = {
     'UP': (0, -1),  # Haut : diminue y
@@ -586,7 +585,7 @@ class RushHourAgent:
 
 class RushHourGameAI(RushHourGame):
     def __init__(self, env, agent, mode='manual', name_file="qtable.pickle", reward=1000, step_penalty=-1,
-                 max_steps=1000):
+                 max_steps=1000, speed=1):
         super().__init__(env)
         self.agent = agent
         self.mode = mode
@@ -599,7 +598,7 @@ class RushHourGameAI(RushHourGame):
         self.reward = reward
         self.step_penalty = step_penalty
         self.last_update = time.time()
-
+        self.speed = speed
         self.total_games = 0
         self.total_wins = 0
         self.start_time = time.time()
@@ -666,6 +665,7 @@ class RushHourGameAI(RushHourGame):
                 self.episode_steps += 1
 
                 self.clear()
+                time.sleep(1 / self.speed)
                 self.on_draw()
 
     def calculate_reward(self, car, old_positions):
@@ -701,16 +701,16 @@ def main():
     parser.add_argument('--qtable_load', type=str, default='', help='Path to load qtable')
     parser.add_argument('--qtable_save', type=str, default='qtable.pickle', help='Path to save qtable')
     parser.add_argument('--mode', type=str, choices=['manual', 'auto'], default='manual', help='Game mode')
-    parser.add_argument('--learning_rate', type=float, default=0.1, help='Learning rate')
+    parser.add_argument('--learning_rate', type=float, default=0.2, help='Learning rate')
     parser.add_argument('--discount', type=float, default=0.99, help='Discount factor')
-    parser.add_argument('--epsilon', type=float, default=1.0, help='Epsilon value')
-    parser.add_argument('--epsilon_decay', type=float, default=0.9995, help='Epsilon decay rate')
-    parser.add_argument('--epsilon_min', type=float, default=0.1, help='Minimum epsilon value')
+    parser.add_argument('--epsilon', type=float, default=0.5, help='Epsilon value')
+    parser.add_argument('--epsilon_decay', type=float, default=0.9999, help='Epsilon decay rate')
+    parser.add_argument('--epsilon_min', type=float, default=0.05, help='Minimum epsilon value')
     parser.add_argument('--max_steps', type=int, default=1000, help='Maximum steps per episode')
     parser.add_argument('--reward', type=int, default=1000, help='Reward for winning')
     parser.add_argument('--step_penalty', type=int, default=-1, help='Penalty per step')
-    parser.add_argument('--speed', type=float, default=1.0,
-                        help='Game speed (1.0 = normal, 0.5 = slower, 2.0 = faster)')
+    parser.add_argument('--speed', type=float, default=100.0,
+                        help='Game speed (10.0 = slower, 50 = medium, 100.0 = faster)')
 
     args = parser.parse_args()
 
@@ -725,7 +725,6 @@ def main():
         epsilon_min=args.epsilon_min,
     )
 
-    #SPEED = 0.5
 
 
     if args.qtable_load != '':
@@ -739,6 +738,7 @@ def main():
         reward=args.reward,
         step_penalty=args.step_penalty,
         max_steps=args.max_steps,
+        speed=args.speed,
     )
 
     arcade.run()
