@@ -462,9 +462,6 @@ class RushHourGame(arcade.Window):
 
     def show_plot(self):
         plt.figure(figsize=(10, 6))
-
-
-        plt.subplot(2, 1, 1)
         plt.plot(self.all_scores, label='Score')
         plt.xlabel('Episode')
         plt.ylabel('Score')
