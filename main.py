@@ -8,19 +8,20 @@ import matplotlib.pyplot as plt
 import argparse
 
 SPRITE_SIZE = 64
+
 # Actions
 MOVES = {
-    'UP': (0, -1),  # Haut : diminue y
-    'DOWN': (0, 1),  # Bas : augmente y
+    'UP': (0, -1),    # Haut : diminue y
+    'DOWN': (0, 1),   # Bas : augmente y
     'LEFT': (-1, 0),  # Gauche : diminue x
-    'RIGHT': (1, 0)  # Droite : augmente x
+    'RIGHT': (1, 0)   # Droite : augmente x
 }
 
 MOVES_NUMBER = {
-    65364: 'UP',  # Flèche haut
-    65362: 'DOWN',  # Flèche bas
-    65361: 'LEFT',  # Flèche gauche
-    65363: 'RIGHT'  # Flèche droite
+    65364: 'UP',     # Flèche haut
+    65362: 'DOWN',   # Flèche bas
+    65361: 'LEFT',   # Flèche gauche
+    65363: 'RIGHT'   # Flèche droite
 }
 
 MOVES_STR = {
@@ -37,7 +38,7 @@ MOVEMENT_AXES = {
     'RIGHT': 'H'
 }
 
-SCREEN_WIDTH = 800  # Augmenté pour accommoder le dashboard
+SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 800
 SCREEN_TITLE = "Rush Hour"
 TILE_SIZE = 80
@@ -62,6 +63,12 @@ class Car:
         self.direction = direction
         self.is_main = is_main
         self.points = points
+
+class PositionCar:
+    def __init__(self, car, x, y):
+        self.car = car
+        self.x = x
+        self.y = y
 
 class Parking:
     def __init__(self, cols, rows, exit_point, cars=None):
@@ -97,10 +104,10 @@ class Parking:
             if car.is_main:
                 for point in car.points:
                     if (point.x == self.exit_point.x and point.y == self.exit_point.y) or \
-                            (point.x == self.exit_point.x and point.y + 1 == self.exit_point.y) or \
-                            (point.x == self.exit_point.x and point.y - 1 == self.exit_point.y) or \
-                            (point.x + 1 == self.exit_point.x and point.y == self.exit_point.y) or \
-                            (point.x - 1 == self.exit_point.x and point.y == self.exit_point.y):
+                       (point.x == self.exit_point.x and point.y + 1 == self.exit_point.y) or \
+                       (point.x == self.exit_point.x and point.y - 1 == self.exit_point.y) or \
+                       (point.x + 1 == self.exit_point.x and point.y == self.exit_point.y) or \
+                       (point.x - 1 == self.exit_point.x and point.y == self.exit_point.y):
                         return True
         return False
 
@@ -110,26 +117,34 @@ class Parking:
         if car.direction != MOVEMENT_AXES[direction]:
             return False
 
+        front_x = None
+        if car.is_main and direction == 'RIGHT':
+            front_x = max(p.x for p in car.points)
+
         for point in car.points:
             new_x = point.x + move[0]
             new_y = point.y + move[1]
-            if not (0 <= new_x < self.cols and 0 <= new_y < self.rows):
-                return False
+            if car.is_main and direction == 'RIGHT' and point.x == front_x:
+                if (new_x, new_y) == (self.exit_point.x, self.exit_point.y):
+                    pass
+                else:
+                    if not (0 <= new_x < self.cols and 0 <= new_y < self.rows):
+                        return False
+            else:
+                if not (0 <= new_x < self.cols and 0 <= new_y < self.rows):
+                    return False
 
-            if self.find_car(new_x, new_y) and self.find_car(new_x, new_y) != car:
-                return False
+
+            if (new_x, new_y) != (self.exit_point.x, self.exit_point.y):
+                other_car = self.find_car(new_x, new_y)
+                if other_car and other_car != car:
+                    return False
+
 
         for point in car.points:
             point.x += move[0]
             point.y += move[1]
         return True
-
-class PositionCar:
-    def __init__(self, car, x, y):
-        self.car = car
-        self.x = x
-        self.y = y
-
 
 class Environment:
     def __init__(self, config_file):
@@ -151,7 +166,8 @@ class Environment:
         return parking
 
     def create_cars(self):
-        cars = [Car("red", True, direction=self.config["main_car"]["direction"],
+        cars = [Car("red", True,
+                    direction=self.config["main_car"]["direction"],
                     points=[Point(p["x"], p["y"]) for p in self.config["main_car"]["case"]])]
         for car in self.config["cars"]:
             new_car = Car(
@@ -190,24 +206,14 @@ class RushHourGame(arcade.Window):
         )
         for row in range(self.env.parking.rows + 1):
             y = row * TILE_SIZE + PARKING_OFFSET
-            arcade.draw_line(
-                PARKING_OFFSET,
-                y,
-                PARKING_OFFSET + self.env.parking.rows * TILE_SIZE,
-                y,
-                arcade.color.BLACK,
-                2,
-            )
+            arcade.draw_line(PARKING_OFFSET, y,
+                             PARKING_OFFSET + self.env.parking.cols * TILE_SIZE, y,
+                             arcade.color.BLACK, 2)
         for col in range(self.env.parking.cols + 1):
             x = col * TILE_SIZE + PARKING_OFFSET
-            arcade.draw_line(
-                x,
-                PARKING_OFFSET,
-                x,
-                PARKING_OFFSET + self.env.parking.cols * TILE_SIZE,
-                arcade.color.BLACK,
-                2,
-            )
+            arcade.draw_line(x, PARKING_OFFSET,
+                             x, PARKING_OFFSET + self.env.parking.rows * TILE_SIZE,
+                             arcade.color.BLACK, 2)
 
     def draw_cars(self):
         for car in self.env.parking.cars:
@@ -217,26 +223,22 @@ class RushHourGame(arcade.Window):
                 arcade.draw_rectangle_filled(x, y, TILE_SIZE - 10, TILE_SIZE - 10, car.color)
 
     def draw_grass(self):
-        arcade.draw_rectangle_filled(
-            SCREEN_WIDTH / 2,
-            SCREEN_HEIGHT / 2,
-            SCREEN_WIDTH,
-            SCREEN_HEIGHT,
-            arcade.color.DARK_SPRING_GREEN,
-        )
+        arcade.draw_rectangle_filled(SCREEN_WIDTH / 2,
+                                     SCREEN_HEIGHT / 2,
+                                     SCREEN_WIDTH, SCREEN_HEIGHT,
+                                     arcade.color.DARK_SPRING_GREEN)
 
     def draw_exit(self):
         x = self.env.parking.exit_point.x * TILE_SIZE + PARKING_OFFSET
         y = self.env.parking.exit_point.y * TILE_SIZE + TILE_SIZE / 2 + PARKING_OFFSET
-        arcade.draw_rectangle_filled(x + TILE_SIZE / 2, y, TILE_SIZE, TILE_SIZE, arcade.color.LIGHT_RED_OCHRE)
-        arcade.draw_text("EXIT", x + TILE_SIZE / 2 - 20, y - 10, arcade.color.BLACK, 16, bold=True)
+        arcade.draw_rectangle_filled(x + TILE_SIZE / 2, y, TILE_SIZE, TILE_SIZE,
+                                     arcade.color.LIGHT_RED_OCHRE)
+        arcade.draw_text("EXIT", x + TILE_SIZE / 2 - 20, y - 10,
+                         arcade.color.BLACK, 16, bold=True)
 
     def draw_dashboard(self):
-        # Position de départ pour le dashboard
         start_x = SCREEN_WIDTH - 250
         start_y = SCREEN_HEIGHT - 50
-
-        # Fond du dashboard
         arcade.draw_rectangle_filled(
             start_x + 125,
             SCREEN_HEIGHT - 100,
@@ -244,26 +246,10 @@ class RushHourGame(arcade.Window):
             500,
             arcade.make_transparent_color(arcade.color.DARK_BLUE, 200)
         )
-
-        # Titre du dashboard
-        arcade.draw_text(
-            "STATISTIQUES",
-            start_x + 50,
-            start_y + 20,
-            arcade.color.WHITE,
-            16,
-            bold=True
-        )
-
-        # Score actuel
-        arcade.draw_text(
-            f"Score: {self.score}",
-            start_x + 10,
-            start_y - 20,
-            arcade.color.WHITE,
-            14
-        )
-
+        arcade.draw_text("STATISTIQUES", start_x + 50, start_y + 20,
+                         arcade.color.WHITE, 16, bold=True)
+        arcade.draw_text(f"Score: {self.score}", start_x + 10, start_y - 20,
+                         arcade.color.WHITE, 14)
         if hasattr(self, 'stats'):
             stats_text = [
                 f"Parties: {self.total_games}",
@@ -271,153 +257,51 @@ class RushHourGame(arcade.Window):
                 f"Taux victoire: {self.stats['win_rate']:.1f}%",
                 f"Score moyen: {self.stats['average_score']:.1f}",
                 f"Temps moyen: {self.stats['average_time']:.1f}s",
-                f"Meilleur score: {self.best_score}",
                 f"Learning rate: {self.agent.learning_rate}",
                 f"Discount: {self.agent.discount}",
                 f"Epsilon: {self.agent.epsilon:.3f}",
                 f"Epsilon decay: {self.agent.epsilon_decay:.3f}",
                 f"Epsilon min: {self.agent.epsilon_min}",
-
             ]
-
             for i, text in enumerate(stats_text):
-                arcade.draw_text(
-                    text,
-                    start_x + 10,
-                    start_y - (50 + i * 25),
-                    arcade.color.WHITE,
-                    14
-                )
+                arcade.draw_text(text, start_x + 10, start_y - (50 + i * 25),
+                                 arcade.color.WHITE, 14)
 
     def on_draw(self):
         self.clear()
         arcade.start_render()
-
         self.draw_grass()
         self.draw_parking()
         self.draw_cars()
         self.draw_exit()
         self.draw_dashboard()
 
-
-        arcade.draw_rectangle_filled(
-            100,
-            50,
-            150,
-            30,
-            arcade.color.ORANGE
-        )
-        arcade.draw_text(
-            "Save Q-table",
-            50,
-            40,
-            arcade.color.WHITE,
-            14,
-            bold=True
-        )
-
-        arcade.draw_rectangle_filled(
-            300,
-            50,
-            150,
-            30,
-            arcade.color.PURPLE
-        )
-        arcade.draw_text(
-            "Load Q-table",
-            250,
-            40,
-            arcade.color.WHITE,
-            14,
-            bold=True
-        )
-
-        # Bouton Reset (position originale)
-        arcade.draw_rectangle_filled(
-            500,
-            50,
-            150,
-            30,
-            arcade.color.RED
-        )
-        arcade.draw_text(
-            "Reset",
-            470,
-            40,
-            arcade.color.WHITE,
-            14,
-            bold=True
-        )
-
-        arcade.draw_rectangle_filled(
-            100,
-            SCREEN_HEIGHT - 30,
-            150,
-            30,
-            arcade.color.BLUE,
-        )
-        arcade.draw_text(
-            "Print Q-table",
-            50,
-            SCREEN_HEIGHT - 40,
-            arcade.color.WHITE,
-            14,
-            bold=True,
-        )
-
-
-        arcade.draw_rectangle_filled(
-            100,
-            SCREEN_HEIGHT - 70,
-            150,
-            30,
-            arcade.color.GREEN,
-        )
-        arcade.draw_text(
-            "Show Plot",
-            50,
-            SCREEN_HEIGHT - 80,
-            arcade.color.WHITE,
-            14,
-            bold=True,
-        )
-
-
-        arcade.draw_rectangle_filled(
-            SCREEN_WIDTH - 100,
-            50,
-            150,
-            30,
-            arcade.color.RED if self.paused else arcade.color.GREEN
-        )
-        arcade.draw_text(
-            "PAUSE" if not self.paused else "RESUME",
-            SCREEN_WIDTH - 150,
-            40,
-            arcade.color.WHITE,
-            14,
-            bold=True
-        )
-
+        arcade.draw_rectangle_filled(100, 50, 150, 30, arcade.color.ORANGE)
+        arcade.draw_text("Save Q-table", 50, 40, arcade.color.WHITE, 14, bold=True)
+        arcade.draw_rectangle_filled(300, 50, 150, 30, arcade.color.PURPLE)
+        arcade.draw_text("Load Q-table", 250, 40, arcade.color.WHITE, 14, bold=True)
+        arcade.draw_rectangle_filled(500, 50, 150, 30, arcade.color.RED)
+        arcade.draw_text("Reset", 470, 40, arcade.color.WHITE, 14, bold=True)
+        arcade.draw_rectangle_filled(100, SCREEN_HEIGHT - 30, 150, 30, arcade.color.BLUE)
+        arcade.draw_text("Print Q-table", 50, SCREEN_HEIGHT - 40, arcade.color.WHITE, 14, bold=True)
+        arcade.draw_rectangle_filled(100, SCREEN_HEIGHT - 70, 150, 30, arcade.color.GREEN)
+        arcade.draw_text("Show Plot", 50, SCREEN_HEIGHT - 80, arcade.color.WHITE, 14, bold=True)
+        arcade.draw_rectangle_filled(SCREEN_WIDTH - 100, 50, 150, 30,
+                                     arcade.color.RED if self.paused else arcade.color.GREEN)
+        arcade.draw_text("PAUSE" if not self.paused else "RESUME", SCREEN_WIDTH - 150, 40,
+                         arcade.color.WHITE, 14, bold=True)
         if self.win_message:
-            arcade.draw_text(
-                self.win_message,
-                SCREEN_WIDTH // 2 - 100,
-                SCREEN_HEIGHT // 2,
-                arcade.color.YELLOW,
-                24,
-                bold=True
-            )
+            arcade.draw_text(self.win_message,
+                             SCREEN_WIDTH // 2 - 100,
+                             SCREEN_HEIGHT // 2,
+                             arcade.color.YELLOW, 24, bold=True)
 
     def on_mouse_release(self, x, y, button, modifiers):
-
         if 35 <= y <= 65:
             if 25 <= x <= 175:
                 print("Saving Q-table...")
                 self.agent.save_qtable(self.name_file_qtable)
                 return
-
-
             elif 225 <= x <= 375:
                 print("Loading Q-table...")
                 if self.agent.load_qtable(self.name_file_qtable):
@@ -425,31 +309,21 @@ class RushHourGame(arcade.Window):
                 else:
                     print("No Q-table file found")
                 return
-
-
             elif 425 <= x <= 575:
                 print("Resetting environment...")
                 self.reset_episode()
                 return
-
-
             elif SCREEN_WIDTH - 175 <= x <= SCREEN_WIDTH - 25:
                 self.paused = not self.paused
                 print(f"Game {'paused' if self.paused else 'resumed'}")
                 return
-
-        # Gestion des boutons de gauche
         if 25 <= x <= 175:
-            # Print Q-table
             if SCREEN_HEIGHT - 45 <= y <= SCREEN_HEIGHT - 15:
                 self.print_qtable()
                 return
-
-            # Show Plot
             elif SCREEN_HEIGHT - 85 <= y <= SCREEN_HEIGHT - 55:
                 self.show_plot()
                 return
-
         self.input = (x, y)
 
     def print_qtable(self):
@@ -469,9 +343,9 @@ class RushHourGame(arcade.Window):
         plt.legend()
         plt.show()
 
-
 class RushHourAgent:
-    def __init__(self, learning_rate=0.1, discount=0.99, epsilon=1.0, epsilon_decay=0.9995, epsilon_min=0.1):
+    def __init__(self, learning_rate=0.1, discount=0.99, epsilon=1.0,
+                 epsilon_decay=0.995, epsilon_min=0.05):
         self.q_table = defaultdict(lambda: defaultdict(float))
         self.discount = discount
         self.learning_rate = learning_rate
@@ -484,13 +358,10 @@ class RushHourAgent:
         cars_info = []
         main_car = next(car for car in parking.cars if car.is_main)
         cars_info.append(self.get_string_car(main_car))
-
         other_cars = []
         for car in parking.cars:
             if not car.is_main:
-                car_info = self.get_string_car(car)
-                other_cars.append(car_info)
-
+                other_cars.append(self.get_string_car(car))
         other_cars.sort()
         cars_info.extend(other_cars)
         return str(cars_info)
@@ -503,20 +374,15 @@ class RushHourAgent:
 
     def choose_action(self, state, parking):
         available_moves = self.get_available_moves(parking)
-
         if not available_moves:
             return None
-
         if random.random() < self.epsilon:
             return random.choice(available_moves)
-
         q_values = self.q_table[state]
         if not q_values:
             return random.choice(available_moves)
-
         best_value = float('-inf')
         best_actions = []
-
         for action in available_moves:
             value = q_values.get(action, 0)
             if value > best_value:
@@ -524,7 +390,6 @@ class RushHourAgent:
                 best_actions = [action]
             elif value == best_value:
                 best_actions.append(action)
-
         return random.choice(best_actions)
 
     def get_available_moves(self, parking):
@@ -532,26 +397,33 @@ class RushHourAgent:
         for car in parking.cars:
             for move_key in self.available_moves:
                 direction = MOVES_NUMBER[move_key]
-                if car.direction == MOVEMENT_AXES[direction]:
-                    move = MOVES[direction]
-                    can_move = True
-
-                    for point in car.points:
-                        new_x = point.x + move[0]
-                        new_y = point.y + move[1]
-
+                if car.direction != MOVEMENT_AXES[direction]:
+                    continue
+                move = MOVES[direction]
+                can_move = True
+                front_x = None
+                if car.is_main and direction == 'RIGHT':
+                    front_x = max(p.x for p in car.points)
+                for point in car.points:
+                    new_x = point.x + move[0]
+                    new_y = point.y + move[1]
+                    if car.is_main and direction == 'RIGHT' and point.x == front_x:
+                        if (new_x, new_y) == (parking.exit_point.x, parking.exit_point.y):
+                            continue
+                        else:
+                            if not (0 <= new_x < parking.cols and 0 <= new_y < parking.rows):
+                                can_move = False
+                                break
+                    else:
                         if not (0 <= new_x < parking.cols and 0 <= new_y < parking.rows):
                             can_move = False
                             break
-
-                        other_car = parking.find_car(new_x, new_y)
-                        if other_car and other_car != car:
-                            can_move = False
-                            break
-
-                    if can_move:
-                        available_moves.append((car.color, direction, move_key))
-
+                    other_car = parking.find_car(new_x, new_y)
+                    if other_car and other_car != car:
+                        can_move = False
+                        break
+                if can_move:
+                    available_moves.append((car.color, direction, move_key))
         return available_moves
 
     def learn(self, state, action, reward, next_state):
@@ -560,10 +432,8 @@ class RushHourAgent:
             target = reward + self.discount * best_next_value
         else:
             target = reward
-
         old_value = self.q_table[state][action]
         self.q_table[state][action] = old_value + self.learning_rate * (target - old_value)
-
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
     def save_qtable(self, filename):
@@ -579,10 +449,9 @@ class RushHourAgent:
         except FileNotFoundError:
             return False
 
-
 class RushHourGameAI(RushHourGame):
-    def __init__(self, env, agent, mode='manual', name_file="qtable.pickle", reward=1000, step_penalty=-1,
-                 max_steps=1000, speed=1):
+    def __init__(self, env, agent, mode='manual', name_file="qtable.pickle",
+                 reward=1000, step_penalty=-1, max_steps=1000, speed=1):
         super().__init__(env)
         self.agent = agent
         self.mode = mode
@@ -608,11 +477,10 @@ class RushHourGameAI(RushHourGame):
             'average_time': 0,
             'best_time': float('inf'),
             'worst_time': 0,
-            'best_score': float('inf'),
         }
 
     def update(self, delta_time):
-        if not self.mode == 'auto' or self.paused:
+        if self.mode != 'auto' or self.paused:
             return
 
         if self.env.parking.you_win():
@@ -625,7 +493,6 @@ class RushHourGameAI(RushHourGame):
                 self.best_score = self.score
             if self.last_state and self.last_action:
                 self.agent.learn(self.last_state, self.last_action, self.reward, None)
-
             self.all_scores.append(self.score)
             print(f"Victoire ! Score: {self.score}, Steps: {self.episode_steps}, Temps: {completion_time:.2f}s")
             self.reset_episode()
@@ -640,18 +507,15 @@ class RushHourGameAI(RushHourGame):
 
         current_state = self.agent.get_state_key(self.env.parking)
         action = self.agent.choose_action(current_state, self.env.parking)
-
         if action is None:
             self.reset_episode()
             return
 
         car_color, direction, move_key = action
         car = self.env.parking.find_car_color(car_color)
-
         if car:
             old_positions = self.env.parking.get_car_positions()
             moved = self.env.parking.move_car(car, move_key)
-
             if moved:
                 reward = self.calculate_reward(car, old_positions)
                 self.score += reward
@@ -660,7 +524,6 @@ class RushHourGameAI(RushHourGame):
                 self.last_state = current_state
                 self.last_action = action
                 self.episode_steps += 1
-
                 self.clear()
                 time.sleep(1 / self.speed)
                 self.on_draw()
@@ -668,19 +531,34 @@ class RushHourGameAI(RushHourGame):
     def calculate_reward(self, car, old_positions):
         if self.env.parking.you_win():
             return self.reward
-        return self.step_penalty
+        if car.is_main:
+            old_main_positions = [p for p in old_positions if p.car.is_main]
+            new_main_positions = [p for p in self.env.parking.get_car_positions() if p.car.is_main]
+            if old_main_positions and new_main_positions:
+                old_front_x = max(p.x for p in old_main_positions)
+                new_front_x = max(p.x for p in new_main_positions)
+                exit_x = self.env.parking.exit_point.x
+                old_distance = exit_x - old_front_x
+                new_distance = exit_x - new_front_x
+                diff = old_distance - new_distance
+                if diff >= 0:
+                    shaping_reward = diff * 10
+                else:
+                    shaping_reward = diff * 20
+                return self.step_penalty + shaping_reward
+            else:
+                return self.step_penalty
+        else:
+            return self.step_penalty - 5
 
     def update_statistics(self, completion_time):
         if self.all_scores:
             self.stats['average_score'] = sum(self.all_scores) / len(self.all_scores)
-
         self.stats['win_rate'] = (self.total_wins / self.total_games) * 100 if self.total_games > 0 else 0
-
-        if completion_time is not None:
-            if self.all_completion_times:
-                self.stats['average_time'] = sum(self.all_completion_times) / len(self.all_completion_times)
-                self.stats['best_time'] = min(self.all_completion_times)
-                self.stats['worst_time'] = max(self.all_completion_times)
+        if completion_time is not None and self.all_completion_times:
+            self.stats['average_time'] = sum(self.all_completion_times) / len(self.all_completion_times)
+            self.stats['best_time'] = min(self.all_completion_times)
+            self.stats['worst_time'] = max(self.all_completion_times)
 
     def reset_episode(self):
         self.episode_steps = 0
@@ -691,23 +569,22 @@ class RushHourGameAI(RushHourGame):
         self.clear()
         self.on_draw()
 
-
 def main():
     parser = argparse.ArgumentParser(description='Rush Hour Game')
-    parser.add_argument('level', type=str, help='Path to level file (ex: level1.json)')
-    parser.add_argument('--qtable_load', type=str, default='', help='Path to load qtable')
-    parser.add_argument('--qtable_save', type=str, default='qtable.pickle', help='Path to save qtable')
-    parser.add_argument('--mode', type=str, choices=['manual', 'auto'], default='manual', help='Game mode')
+    parser.add_argument('level', type=str, help='Chemin vers le fichier de niveau (ex: level1.json)')
+    parser.add_argument('--qtable_load', type=str, default='', help='Chemin pour charger le qtable')
+    parser.add_argument('--qtable_save', type=str, default='qtable.pickle', help='Chemin pour sauvegarder le qtable')
+    parser.add_argument('--mode', type=str, choices=['manual', 'auto'], default='manual', help='Mode du jeu')
     parser.add_argument('--learning_rate', type=float, default=0.2, help='Learning rate')
     parser.add_argument('--discount', type=float, default=0.99, help='Discount factor')
-    parser.add_argument('--epsilon', type=float, default=0.5, help='Epsilon value')
-    parser.add_argument('--epsilon_decay', type=float, default=0.9999, help='Epsilon decay rate')
-    parser.add_argument('--epsilon_min', type=float, default=0.05, help='Minimum epsilon value')
-    parser.add_argument('--max_steps', type=int, default=1000, help='Maximum steps per episode')
-    parser.add_argument('--reward', type=int, default=1000, help='Reward for winning')
-    parser.add_argument('--step_penalty', type=int, default=-1, help='Penalty per step')
+    parser.add_argument('--epsilon', type=float, default=1.0, help='Valeur initiale d\'epsilon')
+    parser.add_argument('--epsilon_decay', type=float, default=0.995, help='Taux de décroissance d\'epsilon')
+    parser.add_argument('--epsilon_min', type=float, default=0.05, help='Valeur minimale d\'epsilon')
+    parser.add_argument('--max_steps', type=int, default=1000, help='Nombre maximum d\'étapes par épisode')
+    parser.add_argument('--reward', type=int, default=1000, help='Récompense en cas de victoire')
+    parser.add_argument('--step_penalty', type=int, default=-1, help='Pénalité par étape')
     parser.add_argument('--speed', type=float, default=100.0,
-                        help='Game speed (10.0 = slower, 50 = medium, 100.0 = faster)')
+                        help='Vitesse du jeu (10.0 = plus lent, 50 = moyen, 100.0 = rapide)')
 
     args = parser.parse_args()
 
@@ -722,16 +599,14 @@ def main():
         epsilon_min=args.epsilon_min,
     )
 
-
-
     if args.qtable_load != '':
         agent.load_qtable(args.qtable_load)
 
     RushHourGameAI(
         env,
         agent,
-        args.mode,
-        args.qtable_save,
+        mode=args.mode,
+        name_file=args.qtable_save,
         reward=args.reward,
         step_penalty=args.step_penalty,
         max_steps=args.max_steps,
@@ -739,7 +614,6 @@ def main():
     )
 
     arcade.run()
-
 
 if __name__ == "__main__":
     main()
